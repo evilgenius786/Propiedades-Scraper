@@ -273,20 +273,27 @@ def main():
     time.sleep(1)
     if not os.path.isdir("json_files"):
         os.mkdir('json_files')
-    if os.path.isfile('data.csv'):
-        print('Scraping...')
-        if os.path.isfile('index.html'):
-            row = {"lat": "123.456",
-                   "long": "321.654",
-                   "url": "https://propiedades.com/inmuebles/casa-en-venta-san-jose-san-juan-nuevo_leon-25033979"
-                          "#tipos=residencial-venta&area=nuevo-leon&precio-min=500000&precio-max=5000000&pos=3"
-                   }
-            getData(getChromeDriver(), row)
+    while True:
+        choice = input("1. Scrape fresh listings\n"
+                       "2. Scrape listings detail\n"
+                       "3. Exit\n")
+        if choice == '1':
+            print("Fetching listings...")
+            getListings()
+        elif choice == '2':
+            print('Scraping...')
+            if os.path.isfile('index.html'):
+                row = {"lat": "123.456",
+                       "long": "321.654",
+                       "url": "https://propiedades.com/inmuebles/casa-en-venta-san-jose-san-juan-nuevo_leon-25033979"
+                              "#tipos=residencial-venta&area=nuevo-leon&precio-min=500000&precio-max=5000000&pos=3"
+                       }
+                getData(getChromeDriver(), row)
+            else:
+                scrape()
+
         else:
-            scrape()
-    else:
-        print("Fetching listings...")
-        getListings()
+            break
 
 
 def getText(soup, tag, class_):
