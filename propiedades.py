@@ -214,8 +214,8 @@ def getListings():
                     # print(json.dumps(data, indent=4))
                     divs.append(data)
                     scraped.append(div['data-href'])
-                elif div['data-href'] in publicacion_urls:
-                    return
+                # elif div['data-href'] in publicacion_urls:
+                #     return
                 else:
                     # pass
                     print(f"{div['data-href']} already exist!")
