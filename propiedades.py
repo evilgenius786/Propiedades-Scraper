@@ -188,6 +188,13 @@ def getListings():
     #     start = 2
     start = 2
     pages = [x for x in range(start, page_count) if x not in scraped_pages]
+    publicacion_urls = []
+    if os.path.isfile('Propiedades.csv'):
+        with open('Propiedades.csv', encoding=encoding) as pfile:
+            reader = csv.DictReader(pfile, fieldnames=headers)
+            next(reader)
+            for line in reader:
+                publicacion_urls.append(line['publicacion_url'])
     while len(pages) > 0:
         print(f"Scraped pages {scraped_pages}")
         i = pages[0]
@@ -207,6 +214,8 @@ def getListings():
                     # print(json.dumps(data, indent=4))
                     divs.append(data)
                     scraped.append(div['data-href'])
+                elif div['data-href'] in publicacion_urls:
+                    return
                 else:
                     # pass
                     print(f"{div['data-href']} already exist!")
