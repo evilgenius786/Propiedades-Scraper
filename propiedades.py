@@ -45,9 +45,10 @@ s.headers = {
                   'Chrome/101.0.4951.67 Safari/537.36'
 }
 
-
 # url = 'https://propiedades.com/nuevo-leon/residencial-venta?pagina=64?pagina=63#precio-min=500000&precio-max=5000000'
 # input()
+aws = "https://propiedadescom.s3.amazonaws.com/files/600x400/"
+
 
 def processData(data, soup):
     # print(f"Processing data for {data['nombre']}")
@@ -55,24 +56,20 @@ def processData(data, soup):
     for key in ['ID', 'lat', 'long', 'publicacion_url', 'operacion', 'precio', 'direccion', 'nombre', 'descripcion']:
         row[key] = data[key]
     hdrs = {
-        "recamaras": "Recámaras",
-        "banos": "Baños ",
-        "cant_estacionamiento": "Estacionamiento",
-        'm2_construccion': 'Tamaño de construcción',
-        'm2_terreno': 'Tamaño del terreno ',
-        "antiguedad": "Edad del inmueble",
-        'pisos_numero_piso': 'No. de pisos',
-        'tamaño_jardin': 'Jardín',
+        "RECÁMARAS": "recamaras",
+        "BAÑOS": "banos",
+        "ESTACIONAMIENTOS": "cant_estacionamiento",
+        'ÁREA CONSTRUIDA': 'm2_construccion',
+        'ÁREA TERRENO': 'm2_terreno',
+        "EDAD DEL INMUEBLE": "antiguedad",
+        'NO. DE PISOS': 'pisos_numero_piso',
+        'Jardín': 'tamaño_jardin',
     }
-    for hdr in hdrs.keys():
-        try:
-            span = soup.find('span', string=hdrs[hdr]).parent.find_all('span')[1].text.replace('m2', '').strip()
-            try:
-                row[hdr] = int(span)
-            except:
-                row[hdr] = span
-        except:
-            row[hdr] = 0
+    for char in data['characteristics']:
+        c = char.split(": ")
+        if c[0] in hdrs.keys():
+            row[hdrs[c[0]]] = c[1]
+
     for i in range(min(len(data['foto']), 20)):
         row[f"foto{i + 1}"] = data['foto'][i]
     trans = {
@@ -100,7 +97,7 @@ def getData(driver, row):
     print(f"Working on {url} {row}")
     filename = unquote(urlparse(url).path.split("/")[-1])
     if os.path.isfile('index.html') and test:
-        with open('index.html') as ifile:
+        with open('index.html', encoding=encoding) as ifile:
             soup = BeautifulSoup(ifile.read(), 'lxml')
     else:
         res = getHtml(driver, url)
@@ -108,27 +105,32 @@ def getData(driver, row):
         if test:
             with open('index.html', 'w') as ifile:
                 ifile.write(soup.prettify())
-    try:
-        addr = soup.find('h1', {"itemprop": "streetAddress"}).text.strip().replace('\t', ' ')
-    except:
-        addr = ""
-    desc = "subsection-content"
+    if "Esta propiedad ya no se encuentra disponible" in soup.text:
+        print(f"No longer available {url} ")
+        with open('NoLongerAvailable.txt', 'a') as nfile:
+            nfile.write(url + '\n')
+        return
+    gallery = json.loads(soup.find("script", {"id": '__NEXT_DATA__'}).text)['props']['pageProps']['results']['gallery']
     try:
         data = {
-            "ID": soup.find('strong', {'style': "color:#666"}).text.split(': ')[1].strip(),
+            "ID": soup.find('div', {'class': "description-number"}).text,
             'lat': row['lat'],
             'long': row['long'],
             "publicacion_url": url,
-            "operacion": getText(soup, 'p', "label-type-property"),
-            "precio": getText(soup, 'span', "price"),
-            "descripcion": soup.find('div', {"class": desc}).find_all('p', {'class': None})[-1].text.strip(),
-            "services": [li.text.strip() for li in soup.find_all('ul', {'class': 'carac-large'})[1].find_all('li')]
-            if len(soup.find_all('ul', {'class': 'carac-large'})) > 1 else "",
-            "characteristics": [f"{li.find('span').text.strip()}: {li.find_all('span')[1].text.strip()}" for li in
-                                soup.find_all('ul', {'class': 'carac-large'})[0].find_all('li')],
-            "direccion": " ".join([line for line in addr.splitlines() if line.strip()]),
-            "nombre": getText(soup, 'h2', 'title-preview'),
-            "foto": [img['content'] for img in soup.find_all("meta", {"itemprop": "contentUrl"})]
+            "operacion": " ".join(
+                [div.text.strip() for div in soup.find('div', {"class": "section-highlighted"}).find_all('div')]),
+            "precio": getText(soup, 'div', "price-text"),
+            "descripcion": soup.find('p', {"data-testid": "property-description"}).text.strip(),
+            "services": [div.text.strip() for div in
+                         soup.find('div', {'data-gtm': 'container-amenidades'}).find_all('div', {'class': "item"})]
+            if soup.find('div', {'data-gtm': 'container-amenidades'}) else [],
+            "characteristics": [
+                f"{div.find('div', {'class': 'description-text'}).text.strip()}: {div.find('div', {'class': 'description-number'}).text.strip()}"
+                for div in
+                soup.find('div', {'data-gtm': 'container-caracteristicas'}).find_all('div', {'class': 'description'})],
+            "direccion": soup.find('h1').text.strip() if soup.find('h1') else "",
+            "nombre": getText(soup, 'h2', True),
+            "foto": [f"{aws}{gallery[key]['image']}" for key in gallery.keys()]
         }
         print(json.dumps(data, indent=4))
         file = f"./json_files/{filename}.json"
@@ -136,8 +138,8 @@ def getData(driver, row):
             with open(file, 'w') as ofile:
                 json.dump(data, ofile, indent=4)
         processData(data, soup)
-        if test:
-            input("Done...")
+        # if test:
+        #     input("Done...")
     except:
         traceback.print_exc()
         with open('Error.txt', 'a') as efile:
@@ -267,25 +269,33 @@ def scrape():
         with open('Propiedades.csv', encoding=encoding, mode='r') as pfile:
             for row in csv.DictReader(pfile, fieldnames=headers):
                 scraped_urls.append(row['publicacion_url'])
+    no_longer_available = []
+    if os.path.isfile('NoLongerAvailable.txt'):
+        with open('NoLongerAvailable.txt', encoding=encoding, mode='r') as nfile:
+            no_longer_available = nfile.read().splitlines()
     with open('data.csv', encoding=encoding) as dfile:
         rows = csv.DictReader(dfile)
         next(rows)
         for row in rows:
-            if row['url'] not in scraped_urls:
+            if row['url'] in no_longer_available:
+                print(f"No longer available {row['url']}")
+            elif row['url'] not in scraped_urls:
                 getData(driver, row)
             else:
                 print(f"Already scraped {row['url']}")
 
 
 def main():
-    logo()
-    time.sleep(1)
+    if not test:
+        logo()
+        time.sleep(1)
     if not os.path.isdir("json_files"):
         os.mkdir('json_files')
     while True:
         choice = input("1. Scrape fresh listings\n"
                        "2. Scrape listings detail\n"
                        "3. Exit\n")
+        # choice = '2'
         if choice == '1':
             print("Fetching listings...")
             getListings()
@@ -298,9 +308,9 @@ def main():
                               "#tipos=residencial-venta&area=nuevo-leon&precio-min=500000&precio-max=5000000&pos=3"
                        }
                 getData(getChromeDriver(), row)
+                break
             else:
                 scrape()
-
         else:
             break
 
