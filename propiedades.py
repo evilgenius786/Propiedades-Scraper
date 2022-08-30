@@ -20,7 +20,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
 t = 1
-timeout = 10
+timeout = 15
 
 debug = True
 encoding = 'latin-1'
@@ -29,6 +29,7 @@ images = False
 max = False
 test = False
 incognito = False
+userequest=False
 price_min = 500000
 price_max = 5000000
 p_url = f'https://propiedades.com/nuevo-leon/residencial-venta#precio-min={price_min}&precio-max={price_max}'
@@ -110,7 +111,7 @@ def getData(driver, row):
         with open('NoLongerAvailable.txt', 'a') as nfile:
             nfile.write(url + '\n')
         return
-    gallery = json.loads(soup.find("script", {"id": '__NEXT_DATA__'}).text)['props']['pageProps']['results']['gallery']
+
     try:
         data = {
             "ID": soup.find('div', {'class': "description-number"}).text,
@@ -130,8 +131,14 @@ def getData(driver, row):
                 soup.find('div', {'data-gtm': 'container-caracteristicas'}).find_all('div', {'class': 'description'})],
             "direccion": soup.find('h1').text.strip() if soup.find('h1') else "",
             "nombre": getText(soup, 'h2', True),
-            "foto": [f"{aws}{gallery[key]['image']}" for key in gallery.keys()]
         }
+        try:
+            gallery = json.loads(soup.find("script", {"id": '__NEXT_DATA__'}).text)['props']['pageProps']['results'][
+                'gallery']
+            data['foto'] = [f"{aws}{gallery[key]['image']}" for key in gallery.keys()]
+        except:
+            print(f"Gallery error {url}")
+            data['foto'] = []
         print(json.dumps(data, indent=4))
         file = f"./json_files/{filename}.json"
         if not os.path.isfile(file):
@@ -142,6 +149,8 @@ def getData(driver, row):
         #     input("Done...")
     except:
         traceback.print_exc()
+        time.sleep(1)
+        print(f"Error on url {url}")
         with open('Error.txt', 'a') as efile:
             efile.write(f"{url}\n")
 
@@ -244,15 +253,18 @@ def getListings():
 
 
 def getHtml(driver, url):
-    res = s.get(url)
-    if '<title>ShieldSquare Captcha' not in res.text:
-        print('Request without browser!')
-        return res.text
+    # res = s.get(url)
+    # if '<title>ShieldSquare Captcha' not in res.text and userequest:
+    #     print('Request without browser!')
+    #     return res.text
     # print("Title:", BeautifulSoup(res.text, 'lxml').find('title').text)
     driver.get(url)
     time.sleep(1)
     while '<title>ShieldSquare Captcha' in driver.page_source:
         print('Waiting for captcha...')
+        time.sleep(2)
+    while "Checking if the site connection is secure" in driver.page_source:
+        print('Checking if the site connection is secure')
         time.sleep(2)
     for cookie in driver.get_cookies():
         s.cookies.set(cookie['name'], cookie['value'])
@@ -383,6 +395,19 @@ def sendkeys(driver, xpath, keys, js=False):
 
 def getChromeDriver(proxy=None):
     options = webdriver.ChromeOptions()
+    # ChromeDriver is just AWFUL because every version or two it breaks unless you pass cryptic arguments
+    # AGRESSIVE: options.setPageLoadStrategy(PageLoadStrategy.NONE);
+    # https:#www.skptricks.com/2018/08/timed-out-receiving-message-from-renderer-selenium.html
+    options.add_argument("start-maximized")  # https:#stackoverflow.com/a/26283818/1689770
+    options.add_argument("enable-automation")  # https:#stackoverflow.com/a/43840128/1689770
+    options.add_argument("--headless")  # only if you are ACTUALLY running headless
+    options.add_argument("--no-sandbox")  # https:#stackoverflow.com/a/50725918/1689770
+    options.add_argument("--disable-dev-shm-usage")  # https:#stackoverflow.com/a/50725918/1689770
+    options.add_argument("--disable-browser-side-navigation")  # https:#stackoverflow.com/a/49123152/1689770
+    options.add_argument("--disable-gpu")
+    # https:#stackoverflow.com/questions/51959986/how-to-solve-selenium-chromedriver-timed-out-receiving-message-from-renderer-exc
+    # This option was deprecated, see https:#sqa.stackexchange.com/questions/32444/how-to-disable-infobar-from-chrome
+    # options.add_argument("--disable-infobars"); #https:#stackoverflow.com/a/43840128/1689770
     if debug:
         # print("Connecting existing Chrome for debugging...")
         options.debugger_address = "127.0.0.1:9222"
