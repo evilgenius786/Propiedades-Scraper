@@ -20,19 +20,22 @@ from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
 t = 1
-timeout = 15
+timeout = 5
 
 debug = True
+test = False
+
 encoding = 'latin-1'
 headless = False
 images = False
 max = False
-test = False
+
 incognito = False
-userequest=False
+userequest = False
 price_min = 500000
 price_max = 5000000
-p_url = f'https://propiedades.com/nuevo-leon/residencial-venta#precio-min={price_min}&precio-max={price_max}'
+# p_url = f'https://propiedades.com/nuevo-leon/residencial-venta#precio-min={price_min}&precio-max={price_max}'
+p_url = f"https://propiedades.com/nuevo-leon/residencial-venta?pagina=1#precio-min={price_min}&precio-max={price_max}"
 headers = ["ID", 'lat', 'long', "operacion", "precio", "recamaras", "banos", "cant_estacionamiento", "m2_construccion",
            "m2_terreno", "antiguedad", "pisos_numero_piso", "amueblado", "direccion", "coordenadas", "nombre",
            "descripcion", "terraza", "tamaño_jardin", "jardines", "alberca", "gimnasio", "hvac", "calefacción",
@@ -58,10 +61,15 @@ def processData(data, soup):
         row[key] = data[key]
     hdrs = {
         "RECÁMARAS": "recamaras",
+        # "RECÃ\u0081MARAS": "recamaras",
         "BAÑOS": "banos",
-        "ESTACIONAMIENTOS": "cant_estacionamiento",
+        # "BAÃ\u0091OS": "banos",
         'ÁREA CONSTRUIDA': 'm2_construccion',
+        # 'Ã\u0081REA CONSTRUIDA': 'm2_construccion',
         'ÁREA TERRENO': 'm2_terreno',
+        # 'Ã\u0081REA TERRENO': 'm2_terreno',
+        "ESTACIONAMIENTOS": "cant_estacionamiento",
+
         "EDAD DEL INMUEBLE": "antiguedad",
         'NO. DE PISOS': 'pisos_numero_piso',
         'Jardín': 'tamaño_jardin',
@@ -85,6 +93,9 @@ def processData(data, soup):
         if word.lower() in soup.text.lower():
             row[trans.get(word, word)] = word.title()
     print(json.dumps(row, indent=4))
+    with open(f"converted_json/{row['ID']}.json", 'w') as ofile:
+        json.dump(row, ofile, indent=4)
+
     try:
         with open('Propiedades.csv', 'a', encoding=encoding, newline='') as pfile:
             csv.DictWriter(pfile, fieldnames=headers).writerow(row)
@@ -97,15 +108,11 @@ def getData(driver, row):
     url: str = row['url']
     print(f"Working on {url} {row}")
     filename = unquote(urlparse(url).path.split("/")[-1])
-    if os.path.isfile('index.html') and test:
-        with open('index.html', encoding=encoding) as ifile:
-            soup = BeautifulSoup(ifile.read(), 'lxml')
-    else:
-        res = getHtml(driver, url)
-        soup = BeautifulSoup(res, 'lxml')
-        if test:
-            with open('index.html', 'w') as ifile:
-                ifile.write(soup.prettify())
+    res = getHtml(driver, url)
+    soup = BeautifulSoup(res, 'lxml')
+    if test:
+        with open('index.html', 'w') as ifile:
+            ifile.write(soup.prettify())
     if "Esta propiedad ya no se encuentra disponible" in soup.text:
         print(f"No longer available {url} ")
         with open('NoLongerAvailable.txt', 'a') as nfile:
@@ -145,8 +152,6 @@ def getData(driver, row):
             with open(file, 'w') as ofile:
                 json.dump(data, ofile, indent=4)
         processData(data, soup)
-        # if test:
-        #     input("Done...")
     except:
         traceback.print_exc()
         time.sleep(1)
@@ -164,18 +169,11 @@ def getListings():
         with open('scraped_pages.txt', 'w') as sfile:
             sfile.write('')
     driver = getChromeDriver()
-    # if "propiedades" not in driver.current_url:
     driver.get(p_url)
+    waitCaptcha(driver)
     time.sleep(2)
-    click(driver, '//div[@class="lista tab_interfaz"]')
-    try:
-        driver.find_element(By.XPATH, '//div[@class="lista tab_interfaz active"]')
-    except:
-        click(driver, '//div[@class="lista tab_interfaz"]')
-        getElement(driver, '//div[@class="list-new"]/div')
-    time.sleep(5)
     soup = getSoup(driver)
-    page_count = int(soup.find('div', {"id": "pagination_content"}).find_all('li')[-2].text)
+    page_count = int(soup.find('ul', {"aria-label": "items-pagination"}).find_all('li')[-2].text)
     print(f"Total pages: {page_count}")
     lat_long_headers = ['lat', 'long', 'url']
     scraped = []
@@ -189,7 +187,7 @@ def getListings():
             for div in datafile:
                 scraped.append(div['url'])
     print(f"Already scraped entries: {len(scraped)}")
-    print(f"Total entries: {soup.find('div', {'class': 'title-result resultados_title'}).text.split()[0]}")
+    print(f"Total entries: {soup.find('div', {'data-testid': 'counter-wrapper'}).find('b').text}")
     # try:
     #     with open("page.txt") as pfile:
     #         start = int(pfile.read())
@@ -214,22 +212,23 @@ def getListings():
             continue
         divs = []
         # print(driver.current_url)
-        for div in soup.find('div', {"class": "list-new"}).find_all('div')[1:]:
+        for div in soup.find_all('section', {"data-id": True})[1:]:
             try:
-                if div['data-href'] not in scraped:
+                href = div.find('meta', {"itemprop": "url"})['content']
+                if href not in scraped:
                     data = {
                         "lat": div.find('meta', {"itemprop": "latitude"})['content'],
                         "long": div.find('meta', {"itemprop": "longitude"})['content'],
-                        "url": div['data-href']
+                        "url": href
                     }
                     # print(json.dumps(data, indent=4))
                     divs.append(data)
-                    scraped.append(div['data-href'])
+                    scraped.append(href)
                 # elif div['data-href'] in publicacion_urls:
                 #     return
                 else:
                     # pass
-                    print(f"{div['data-href']} already exist!")
+                    print(f"{href} already exist!")
             except:
                 pass
                 # print(div)
@@ -242,13 +241,15 @@ def getListings():
             pageno = int(re.findall(r"\d+", driver.current_url)[0])
             if pageno not in scraped_pages and pageno < page_count:
                 scraped_pages.append(pageno)
-                pages.remove(pageno)
+                if pageno in pages:
+                    pages.remove(pageno)
+                # pages.remove(pageno)
             scraped_pages = sorted(set(scraped_pages))
             sfile.write("\n".join([f"{sp}" for sp in scraped_pages]))
         # divs.clear()
         # with open('page.txt', 'w') as pfile:
         #     pfile.write(f"{i}")
-        waitCaptcha(driver, i)
+        clickNext(driver, i)
         soup = getSoup(driver)
 
 
@@ -258,7 +259,8 @@ def getHtml(driver, url):
     #     print('Request without browser!')
     #     return res.text
     # print("Title:", BeautifulSoup(res.text, 'lxml').find('title').text)
-    driver.get(url)
+    if not test:
+        driver.get(url)
     time.sleep(1)
     while '<title>ShieldSquare Captcha' in driver.page_source:
         print('Waiting for captcha...')
@@ -274,13 +276,10 @@ def getHtml(driver, url):
 def scrape():
     driver = getChromeDriver()
     scraped_urls = []
-    if not os.path.isfile("Propiedades.csv"):
-        with open('Propiedades.csv', encoding=encoding, mode='w', newline='') as pfile:
-            csv.DictWriter(pfile, fieldnames=headers).writeheader()
-    else:
-        with open('Propiedades.csv', encoding=encoding, mode='r') as pfile:
-            for row in csv.DictReader(pfile, fieldnames=headers):
-                scraped_urls.append(row['publicacion_url'])
+
+    with open('Propiedades.csv', encoding=encoding, mode='r') as pfile:
+        for row in csv.DictReader(pfile, fieldnames=headers):
+            scraped_urls.append(row['publicacion_url'])
     no_longer_available = []
     if os.path.isfile('NoLongerAvailable.txt'):
         with open('NoLongerAvailable.txt', encoding=encoding, mode='r') as nfile:
@@ -289,6 +288,9 @@ def scrape():
         rows = csv.DictReader(dfile)
         next(rows)
         for row in rows:
+            if test:
+                getData(driver, row)
+                break
             if row['url'] in no_longer_available:
                 print(f"No longer available {row['url']}")
             elif row['url'] not in scraped_urls:
@@ -298,31 +300,33 @@ def scrape():
 
 
 def main():
-    if not test:
-        logo()
-        time.sleep(1)
+    logo()
+    # time.sleep(1)
     if not os.path.isdir("json_files"):
         os.mkdir('json_files')
+    if not os.path.isdir("converted_json"):
+        os.mkdir('converted_json')
+    if not os.path.isfile("Propiedades.csv"):
+        with open('Propiedades.csv', encoding=encoding, mode='w', newline='') as pfile:
+            csv.DictWriter(pfile, fieldnames=headers).writeheader()
     while True:
+        if test:
+            row = {"lat": "123.456",
+                   "long": "321.654",
+                   "url": "https://propiedades.com/inmuebles/casa-en-venta-san-francisco-nuevo_leon-25556114#area=nuevo-leon&pagina=1&tipos=residencial-venta&pos=6"
+                   }
+            getData(getChromeDriver(), row)
+            return
         choice = input("1. Scrape fresh listings\n"
                        "2. Scrape listings detail\n"
                        "3. Exit\n")
-        # choice = '2'
+        # choice = '1'
         if choice == '1':
             print("Fetching listings...")
             getListings()
         elif choice == '2':
             print('Scraping...')
-            if os.path.isfile('index.html'):
-                row = {"lat": "123.456",
-                       "long": "321.654",
-                       "url": "https://propiedades.com/inmuebles/casa-en-venta-san-jose-san-juan-nuevo_leon-25033979"
-                              "#tipos=residencial-venta&area=nuevo-leon&precio-min=500000&precio-max=5000000&pos=3"
-                       }
-                getData(getChromeDriver(), row)
-                break
-            else:
-                scrape()
+            scrape()
         else:
             break
 
@@ -334,25 +338,36 @@ def getText(soup, tag, class_):
         return ""
 
 
-def waitCaptcha(driver: WebDriver, pagenumber: int):
+def waitCaptcha(driver):
+    while "Checking if the site connection is secure" in driver.page_source:
+        for i in range(5):
+            if "Checking if the site connection is secure" in driver.page_source:
+                print("Waiting for secure connection...")
+                time.sleep(1)
+        print("Deleting cookies...")
+        driver.delete_all_cookies()
+
+
+def clickNext(driver: WebDriver, pagenumber: int):
+    waitCaptcha(driver)
     while True:
         try:
-            try:
-                driver.find_element(By.XPATH, '//div[@class="lista tab_interfaz active"]')
-            except:
-                click(driver, '//div[@class="lista tab_interfaz"]')
-            getElement(driver, '//div[@class="list-new"]/div')
             for i in range(5):
                 try:
-                    driver.execute_script("arguments[0].setAttribute(arguments[1], arguments[2]);",
-                                          getElement(driver, "//a[@data-value]"), "data-value", f"{pagenumber}")
+                    try:
+                        click(driver, '//*[@id="btn-simulates-no-thanks"]')
+                    except:
+                        pass
                     time.sleep(1)
-                    click(driver, f'//a[@data-value="{pagenumber}"]')
+                    print("Clicking next page...")
+                    click(driver, f'//a[@aria-label="page-{pagenumber}"]')
+                    # click(driver, f'//li[@data-gtm="arrow right"]/a')
+                    print(f"Page {pagenumber} loaded!")
                     break
                 except:
-                    pass
+                    traceback.print_exc()
             time.sleep(1)
-            getElement(driver, '//div[@class="list-new"]/div')
+            # getElement(driver, '//div[@class="list-new"]/div')
             print(f"Page {pagenumber - 1} {driver.current_url}")
             break
         except:
@@ -471,4 +486,5 @@ ________________________________________________________________________________
 
 
 if __name__ == "__main__":
+    # processData(data, soup)
     main()
